@@ -98,11 +98,18 @@ y_train, y_test = y[:split], y[split:]
 
 # Load / Train LSTM model
 # For demo, we assume model is trained in Colab and saved as 'lstm_model.h5'
-try:
-    model = load_model("models/lstm_model.h5")
-except:
-    st.warning("Model not found. Please train the LSTM model and save as 'lstm_model.h5'.")
+import os
+
+model_path = "models/lstm_model.h5"
+
+if os.path.exists(model_path):
+    model = load_model(model_path)
+else:
+    st.error(f"❌ Model not found at '{model_path}'")
+    st.write("Current working directory:", os.getcwd())
+    st.write("Files in current directory:", os.listdir("."))
     st.stop()
+
 
 # Predict
 y_pred = model.predict(X_test, verbose=0)
