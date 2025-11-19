@@ -10,103 +10,109 @@ It predicts stock prices, generates buy/sell signals, performs backtesting, and 
 </p>
 
 🌟 Features
-🧠 1. LSTM Stock Price Prediction
+1. LSTM Stock Price Prediction
 <img width="2927" height="1617" alt="7F4298C3-2414-499A-AFF2-624E1B79B2BE" src="https://github.com/user-attachments/assets/24120576-4fcd-45c2-9b26-9bf4454d694b" />
 
 
-Predicts next-day price using a deep learning LSTM model
+. Predicts next-day price using a deep learning LSTM model
 
 
-Uses 60 past days + technical indicators
+. Uses 60 past days + technical indicators
 
 
-Forecasts 5–60 future days
+. Forecasts 5–60 future days
 
 
 📈 2. Technical Indicators
 
 
-SMA 20
+. SMA 20
 
 
-SMA 50
+. SMA 50
 
 
-RSI
+. RSI
 
 
-MACD
+. MACD
 
 
-Signal Line
+. Signal Line
 
 
 🕯️ 3. Candlestick Charts (Plotly)
 Interactive TradingView-style charts:
 
 
-OHLC candles
+. OHLC candles
 
 
-Zooming
+. Zooming
 
 
-MACD & RSI shaded zones
+. MACD & RSI shaded zones
 
 
 📊 4. Advanced Backtesting
 
 
-Buy/Sell based on model predictions
+. Buy/Sell based on model predictions
 
 
-Uses capital allocation logic
+. Uses capital allocation logic
 
 
-Final portfolio value
+. Final portfolio value
 
 
-ROI %
+. ROI %
 
 
-Risk management calculator
+. Risk management calculator
 
 
 🔮 5. 30-Day Future Forecasting
 Smooth recursive predictions with auto-regression.
+
+
 💰 6. Crypto Dashboard
 Live tracking: BTC, ETH, DOGE (7-day/1h interval)
+
+
 🆚 7. Multi-Stock Comparison
 Compare 2–10 stocks together.
+
+
 ⚙️ 8. Settings
 
 
-Auto-refresh
+. Auto-refresh
 
 
-Symbol selector
+. Symbol selector
 
 
-Days selector
+. Days selector
 
 
-Dark theme (TradingView style)
+. Dark theme (TradingView style)
 
 
 🤖 9. AI Buy/Sell Recommendation
 Based on:
 
 
-Trend
+. Trend
 
 
-RSI
+. RSI
 
 
-MACD–Signal crossover
+. MACD–Signal crossover
 
 
-Last 5-day movement
+. Last 5-day movement
 
 
 
@@ -191,7 +197,7 @@ ItemValueInitial Capital₹100,000Final Portfolio Value₹146,359Profit₹46,359
 
 🔧 How to Run Locally
 1️⃣ Clone Repo:
-git clone https://github.com/<your-username>/StockPriceLSTM.git
+git clone https://github.com/aarohi1822/StockPriceLSTM.git
 cd StockPriceLSTM
 
 2️⃣ Install Dependencies:
@@ -238,3 +244,4 @@ GitHub: aarohi1822
 
 🎉 Thank You!
 If you like the project, ⭐ the repository!
+
