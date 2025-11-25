@@ -1,4 +1,4 @@
-
+############################################################
 # FIX MAC M1/M2/M3 TENSORFLOW DEADLOCK (MUST BE FIRST)
 ############################################################
 import os
@@ -179,7 +179,6 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
 with tab1:
     st.header(f"📊 Dashboard — {symbol}")
 
-    # Candlestick Chart
     cand = go.Figure(data=[go.Candlestick(
         x=df.index,
         open=df["Open"],
@@ -190,7 +189,6 @@ with tab1:
     cand.update_layout(xaxis_rangeslider_visible=False)
     st.plotly_chart(cand, use_container_width=True)
 
-    # Indicator Chart
     ind = go.Figure()
     ind.add_trace(go.Scatter(x=df.index, y=df["MACD"], name="MACD"))
     ind.add_trace(go.Scatter(x=df.index, y=df["Signal"], name="Signal"))
@@ -198,8 +196,6 @@ with tab1:
     ind.add_hrect(y0=70, y1=100, fillcolor="red", opacity=0.2)
     ind.add_hrect(y0=0, y1=30, fillcolor="green", opacity=0.2)
     st.plotly_chart(ind, use_container_width=True)
-
-
 
 ############################################################
 # TAB 2 — Predictions
