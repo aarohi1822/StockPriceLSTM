@@ -1,33 +1,73 @@
-# app.py
+############################################################
+# FIX MAC M1/M2/M3 TENSORFLOW DEADLOCK (MUST BE FIRST)
+############################################################
+import os
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["TF_NUM_INTEROP_THREADS"] = "1"
+os.environ["TF_NUM_INTRAOP_THREADS"] = "1"
+os.environ["KMP_BLOCKTIME"] = "0"
+os.environ["KMP_SETTINGS"] = "0"
+os.environ["KMP_AFFINITY"] = "disabled"
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+
+import tensorflow as tf
+
+
+############################################################
+# IMPORTS
+############################################################
 import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import load_model
-import pandas_ta as ta
-import os
 
-# -------------------------------
-# Helper Functions
-# -------------------------------
+############################################################
+# PAGE CONFIG
+############################################################
+st.set_page_config(page_title="LSTM Trading Dashboard", layout="wide")
 
-def load_data(symbol, start="2010-01-01", end="2024-12-31"):
-    df = yf.download(symbol, start=start, end=end)
-    
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
+st.markdown("""
+<style>
+body { background-color: #0a0a0a; color: white; }
+[data-testid="stAppViewContainer"] { background-color: #0a0a0a; color: #f5f5f5; }
+[data-testid="stSidebar"] { background-color: #111111; color: white; }
+h1, h2, h3, h4 { color: #00eaff !important; }
+</style>
+""", unsafe_allow_html=True)
 
-    if 'Close' not in df.columns and 'Adj Close' in df.columns:
-        df['Close'] = df['Adj Close']
+############################################################
+# SIMPLE INDICATORS (NO PANDAS_TA)
+############################################################
+def compute_rsi(close, period=14):
+    delta = close.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.rolling(period).mean()
+    avg_loss = loss.rolling(period).mean()
+    rs = avg_gain / avg_loss
+    return 100 - (100 / (1 + rs))
 
-    df['SMA_20'] = ta.sma(df['Close'], length=20)
-    df['SMA_50'] = ta.sma(df['Close'], length=50)
-    df['RSI'] = ta.rsi(df['Close'], length=14)
-    macd = ta.macd(df['Close'])
-    df['MACD'] = macd['MACD_12_26_9']
-    df['Signal'] = macd['MACDs_12_26_9']
+
+def load_data(symbol):
+    df = yf.download(symbol, start="2010-01-01", end="2024-12-31")
+
+    if df.empty:
+        st.error("No data found.")
+        return None
+
+    df["SMA_20"] = df["Close"].rolling(20).mean()
+    df["SMA_50"] = df["Close"].rolling(50).mean()
+
+    df["RSI"] = compute_rsi(df["Close"])
+
+    ema12 = df["Close"].ewm(span=12, adjust=False).mean()
+    ema26 = df["Close"].ewm(span=26, adjust=False).mean()
+    df["MACD"] = ema12 - ema26
+    df["Signal"] = df["MACD"].ewm(span=9, adjust=False).mean()
 
     df.dropna(inplace=True)
     return df
@@ -35,158 +75,179 @@ def load_data(symbol, start="2010-01-01", end="2024-12-31"):
 
 def scale_data(df, features):
     scaler = MinMaxScaler()
-    data = df[features].values
-    scaled_data = scaler.fit_transform(data)
-    return scaled_data, scaler
+    scaled = scaler.fit_transform(df[features])
+    return scaled, scaler
 
 
-def create_sequences(data, seq_length=60):
+def create_sequences(data, seq=60):
     X, y = [], []
-    for i in range(seq_length, len(data)):
-        X.append(data[i-seq_length:i])
-        y.append(data[i, 0])
+    for i in range(seq, len(data)):
+        X.append(data[i-seq:i])
+        y.append(data[i][0])
     return np.array(X), np.array(y)
 
 
-def generate_signals(y_true, y_pred):
-    signals = [0]  # First day no signal
-    for i in range(1, len(y_pred)):
-        signals.append(1 if y_pred[i] > y_true[i-1] else -1)
-    return signals
-
-
-def backtest(prices, signals, initial_capital=100000):
-    capital = initial_capital
+def backtest(prices, signals, capital=100000):
+    cash = capital
     shares = 0
-    portfolio_values = []
-
-    for i in range(len(prices)):
-        price = prices[i]
-        signal = signals[i]
-
-        if signal == 1 and capital > 0:
-            shares = capital / price
-            capital = 0
-        elif signal == -1 and shares > 0:
-            capital = shares * price
+    curve = []
+    for price, sig in zip(prices, signals):
+        if sig == 1 and cash > 0:
+            shares = cash / price
+            cash = 0
+        elif sig == -1 and shares > 0:
+            cash = shares * price
             shares = 0
-
-        portfolio_values.append(capital + shares * price)
-
-    return portfolio_values
+        curve.append(cash + shares * price)
+    return curve
 
 
-def forecast_future(model, scaled_data, scaler, days=30, seq_length=60):
-    last_sequence = scaled_data[-seq_length:]
-    future_predictions_scaled = []
-
+def forecast(model, scaled, scaler, days=30):
+    last_seq = scaled[-60:]
+    preds_scaled = []
     for _ in range(days):
-        X_input = last_sequence.reshape(1, seq_length, scaled_data.shape[1])
-        pred_scaled = model.predict(X_input, verbose=0)[0][0]
+        x = last_seq.reshape(1, 60, scaled.shape[1])
+        pred = model.predict(x, verbose=0)[0][0]
+        new_row = np.zeros((scaled.shape[1],))
+        new_row[0] = pred
+        preds_scaled.append(new_row)
+        last_seq = np.vstack([last_seq[1:], new_row])
+    preds = scaler.inverse_transform(preds_scaled)[:, 0]
+    return preds
 
-        row = np.zeros((scaled_data.shape[1],))
-        row[0] = pred_scaled
-        future_predictions_scaled.append(row.copy())
+############################################################
+# SIDEBAR
+############################################################
+st.sidebar.title("⚙️ Settings")
+symbol = st.sidebar.text_input("Stock Symbol", "AAPL")
+days = st.sidebar.slider("Forecast Days", 5, 60, 30)
 
-        last_sequence = np.vstack([last_sequence[1:], row])
-
-    future_real = scaler.inverse_transform(np.array(future_predictions_scaled))[:, 0]
-    return future_real
-
-
-# -------------------------------
-# Streamlit UI
-# -------------------------------
-
-st.title("📈 Stock Price Prediction & Analysis with LSTM")
-
-symbol = st.text_input("Enter Stock Symbol (e.g., AAPL)", value="AAPL")
+############################################################
+# LOAD DATA
+############################################################
 df = load_data(symbol)
-st.subheader(f"Historical Data for {symbol}")
-st.dataframe(df.tail())
+if df is None:
+    st.stop()
 
-# Features and scaling
 features = ["Close", "SMA_20", "SMA_50", "RSI", "MACD", "Signal"]
-scaled_data, scaler = scale_data(df, features)
-X, y = create_sequences(scaled_data)
-split = int(0.8 * len(X))
+scaled, scaler = scale_data(df, features)
+
+X, y = create_sequences(scaled)
+split = int(0.8*len(X))
 X_train, X_test = X[:split], X[split:]
 y_train, y_test = y[:split], y[split:]
 
+############################################################
+# LOAD MODEL (SAFE LOAD)
+############################################################
+model = load_model("models/lstm_saved_model.keras", compile=False)
 
-# -------------------------------
-# Load Saved Keras Model
-# -------------------------------
-
-model_path = "models/lstm_saved_model.keras"
-
-if os.path.exists(model_path):
-    model = load_model(model_path)
-    st.success("✅ Keras model loaded successfully!")
-else:
-    st.error(f"❌ Model not found at '{model_path}'")
-    st.write("Current working directory:", os.getcwd())
-    st.write("Files here:", os.listdir("."))
-    st.write("Files in models/:", os.listdir("models"))
-    st.stop()
-
-
-# -------------------------------
-# Predictions
-# -------------------------------
-
-y_pred = model.predict(X_test, verbose=0)
+############################################################
+# PREDICT
+############################################################
+pred_scaled = model.predict(X_test, verbose=0)
 
 y_test_real = scaler.inverse_transform(
-    np.hstack([y_test.reshape(-1,1), np.zeros((y_test.shape[0], len(features)-1))])
+    np.hstack([y_test.reshape(-1,1), np.zeros((len(y_test),5))])
 )[:,0]
 
 y_pred_real = scaler.inverse_transform(
-    np.hstack([y_pred, np.zeros((y_pred.shape[0], len(features)-1))])
+    np.hstack([pred_scaled, np.zeros((len(pred_scaled),5))])
 )[:,0]
 
+signals = np.where(y_pred_real[1:] > y_test_real[:-1], 1, -1)
+signals = np.insert(signals, 0, 0)
 
-signals = generate_signals(y_test_real, y_pred_real)
 portfolio_curve = backtest(y_test_real, signals)
-final_value = portfolio_curve[-1]
-roi = (final_value - 100000) / 100000 * 100
+roi = ((portfolio_curve[-1] - 100000)/100000) * 100
+
+############################################################
+# TABS
+############################################################
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "📊 Dashboard",
+    "🤖 Predictions",
+    "📈 Backtesting",
+    "📥 Reports",
+    "📧 Alerts",
+    "🆚 Compare Stocks"
+])
+
+############################################################
+# TAB 1 — Dashboard
+############################################################
+with tab1:
+    st.header(f"📊 Dashboard — {symbol}")
+
+    # Candlestick Chart
+    cand = go.Figure(data=[go.Candlestick(
+        x=df.index,
+        open=df["Open"],
+        high=df["High"],
+        low=df["Low"],
+        close=df["Close"]
+    )])
+    cand.update_layout(xaxis_rangeslider_visible=False)
+    st.plotly_chart(cand, use_container_width=True)
+
+    # Indicator Chart
+    ind = go.Figure()
+    ind.add_trace(go.Scatter(x=df.index, y=df["MACD"], name="MACD"))
+    ind.add_trace(go.Scatter(x=df.index, y=df["Signal"], name="Signal"))
+    ind.add_trace(go.Scatter(x=df.index, y=df["RSI"], name="RSI"))
+    ind.add_hrect(y0=70, y1=100, fillcolor="red", opacity=0.2)
+    ind.add_hrect(y0=0, y1=30, fillcolor="green", opacity=0.2)
+    st.plotly_chart(ind, use_container_width=True)
 
 
-# -------------------------------
-# Visualizations
-# -------------------------------
 
-st.subheader("Backtesting Results")
-st.write(f"Initial Capital: ₹100,000")
-st.write(f"Final Portfolio Value: ₹{final_value:.2f}")
-st.write(f"ROI: {roi:.2f}%")
+############################################################
+# TAB 2 — Predictions
+############################################################
+with tab2:
+    st.header("🤖 Model Performance")
+    st.line_chart(pd.DataFrame({"Actual": y_test_real, "Predicted": y_pred_real}))
 
+    st.subheader("🔮 Future Forecast")
+    f = forecast(model, scaled, scaler, days)
+    st.line_chart(f)
 
-# Actual vs Predicted
-st.subheader("📊 Actual vs Predicted Prices & Buy/Sell Signals")
-plt.figure(figsize=(12,5))
-plt.plot(y_test_real, label="Actual")
-plt.plot(y_pred_real, label="Predicted")
-plt.scatter(np.where(np.array(signals)==1)[0], y_test_real[np.where(np.array(signals)==1)[0]], marker="^", color="green", label="BUY")
-plt.scatter(np.where(np.array(signals)==-1)[0], y_test_real[np.where(np.array(signals)==-1)[0]], marker="v", color="red", label="SELL")
-plt.legend()
-st.pyplot(plt.gcf())
+############################################################
+# TAB 3 — Backtesting
+############################################################
+with tab3:
+    st.header("📈 Portfolio Curve")
+    st.line_chart(portfolio_curve)
+    st.subheader(f"ROI: {roi:.2f}%")
 
+############################################################
+# TAB 4 — Reports
+############################################################
+with tab4:
+    st.info("PDF/CSV export coming soon.")
 
-# Portfolio curve
-st.subheader("💹 Portfolio Equity Curve")
-plt.figure(figsize=(12,5))
-plt.plot(portfolio_curve, label="Portfolio Value")
-plt.legend()
-st.pyplot(plt.gcf())
+############################################################
+# TAB 5 — Alerts
+############################################################
+with tab5:
+    st.info("Email/Telegram trading alerts coming soon.")
 
+############################################################
+# TAB 6 — Compare Stocks
+############################################################
+with tab6:
+    st.header("🆚 Multi-Stock Comparison")
+    stocks = st.text_input("Enter symbols", "AAPL, TSLA, MSFT")
+    syms = [s.strip().upper() for s in stocks.split(",")]
+    dfc = pd.DataFrame()
+    for s in syms:
+        try:
+            dfc[s] = yf.download(s, period="1y")["Close"]
+        except:
+            pass
+    if not dfc.empty:
+        st.line_chart(dfc)
 
-# Future forecast
-st.subheader("🔮 30-Day Future Forecast")
-future_30 = forecast_future(model, scaled_data, scaler)
-plt.figure(figsize=(12,5))
-plt.plot(future_30, marker="o", label="Future Prices")
-plt.legend()
-st.pyplot(plt.gcf())
+############################################################
 
-st.success("✅ Dashboard Ready!")
+st.success("🚀 Dashboard Ready!")
